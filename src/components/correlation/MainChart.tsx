@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
   LineChart,
   Line,
@@ -10,7 +9,6 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { fetchCryptoHistory } from "@/lib/api";
 
 interface MainChartProps {
   mainMover: {
@@ -31,73 +29,44 @@ interface MainChartProps {
   currency?: string;
 }
 
-const COIN_MAPPING = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  SOL: "solana",
-  ADA: "cardano",
-};
-
 const MainChart = ({
   mainMover = { symbol: "BTC", data: [] },
   correlatedAssets = [],
   currency = "usd",
 }: MainChartProps) => {
-  const [timeframe, setTimeframe] = React.useState("24h");
   const [chartData, setChartData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadChartData = async () => {
-      setLoading(true);
-      const days = timeframe === "24h" ? "1" : timeframe === "7d" ? "7" : "30";
+    if (
+      mainMover?.data &&
+      Array.isArray(mainMover.data) &&
+      mainMover.data.length > 0
+    ) {
+      const formattedData = mainMover.data.map(
+        ([timestamp, price]: [number, number]) => ({
+          timestamp: new Date(timestamp).toISOString(),
+          [mainMover.symbol]: price,
+          ...correlatedAssets.reduce((acc, curr, index) => {
+            if (curr.data && curr.data.length > 0) {
+              const matchingPrice = curr.data.find(
+                ([t]: [number, number]) => Math.abs(t - timestamp) < 3600000, // 1 hour tolerance
+              );
+              if (matchingPrice) {
+                acc[curr.symbol] = matchingPrice[1];
+              }
+            }
+            return acc;
+          }, {}),
+        }),
+      );
 
-      try {
-        const mainData = await fetchCryptoHistory(
-          [COIN_MAPPING[mainMover.symbol as keyof typeof COIN_MAPPING]],
-          days,
-          currency,
-        );
-        const correlatedData = await Promise.all(
-          correlatedAssets.map((asset) =>
-            fetchCryptoHistory(
-              [COIN_MAPPING[asset.symbol as keyof typeof COIN_MAPPING]],
-              days,
-              currency,
-            ),
-          ),
-        );
-
-        if (mainData && mainData[0]?.prices) {
-          const formattedData = mainData[0].prices.map(
-            ([timestamp, price]: [number, number]) => ({
-              timestamp: new Date(timestamp).toISOString(),
-              [mainMover.symbol]: price,
-              ...correlatedData.reduce((acc, curr, index) => {
-                if (curr && curr[0]?.prices) {
-                  const matchingPrice = curr[0].prices.find(
-                    ([t]: [number, number]) => Math.abs(t - timestamp) < 1000,
-                  );
-                  if (matchingPrice) {
-                    acc[correlatedAssets[index].symbol] = matchingPrice[1];
-                  }
-                }
-                return acc;
-              }, {}),
-            }),
-          );
-
-          setChartData(formattedData);
-        }
-      } catch (error) {
-        console.error("Error loading chart data:", error);
-      }
-
+      setChartData(formattedData);
       setLoading(false);
-    };
-
-    loadChartData();
-  }, [timeframe, mainMover.symbol, currency]);
+    } else {
+      setLoading(true);
+    }
+  }, [mainMover.data, correlatedAssets]);
 
   const normalizeData = useMemo(
     () => (data: any[]) => {
@@ -125,55 +94,26 @@ const MainChart = ({
     [mainMover.symbol, correlatedAssets],
   );
 
-  const colors = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444"];
+  const colors = ["#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe"];
 
   if (loading) {
     return (
-      <Card className="w-full h-[500px] p-6 bg-slate-900 text-white flex items-center justify-center">
+      <div className="w-full h-[400px] flex items-center justify-center text-gray-500">
         Loading chart data...
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="w-full h-[500px] p-6 bg-slate-900 text-white">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold">Price Movement Correlation</h2>
-        <div className="flex gap-2">
-          <Button
-            variant={timeframe === "24h" ? "default" : "secondary"}
-            onClick={() => setTimeframe("24h")}
-            size="sm"
-          >
-            24h
-          </Button>
-          <Button
-            variant={timeframe === "7d" ? "default" : "secondary"}
-            onClick={() => setTimeframe("7d")}
-            size="sm"
-          >
-            7d
-          </Button>
-          <Button
-            variant={timeframe === "30d" ? "default" : "secondary"}
-            onClick={() => setTimeframe("30d")}
-            size="sm"
-          >
-            30d
-          </Button>
-        </div>
-      </div>
-
-      <ResponsiveContainer width="100%" height="85%">
+    <div className="w-full h-[400px]">
+      <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={normalizeData(chartData || [])}
           margin={{ top: 20, right: 30, left: 0, bottom: 0 }}
         >
           <XAxis
             dataKey="timestamp"
-            tickFormatter={(timestamp) =>
-              new Date(timestamp).toLocaleTimeString()
-            }
+            tickFormatter={(timestamp) => new Date(timestamp).toLocaleString()}
             stroke="#64748b"
           />
           <YAxis
@@ -181,8 +121,12 @@ const MainChart = ({
             stroke="#64748b"
           />
           <Tooltip
-            contentStyle={{ backgroundColor: "#1e293b", border: "none" }}
-            labelStyle={{ color: "#94a3b8" }}
+            contentStyle={{
+              backgroundColor: "#ffffff",
+              borderRadius: "8px",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            }}
+            labelStyle={{ color: "#1e293b" }}
           />
           <Legend />
 
@@ -208,7 +152,7 @@ const MainChart = ({
           ))}
         </LineChart>
       </ResponsiveContainer>
-    </Card>
+    </div>
   );
 };
 

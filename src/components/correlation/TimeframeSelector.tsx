@@ -1,5 +1,5 @@
 import React from "react";
-import { Toggle } from "@/components/ui/toggle";
+import { Button } from "@/components/ui/button";
 
 interface TimeframeSelectorProps {
   selectedTimeframe?: "24h" | "7d" | "30d";
@@ -11,31 +11,31 @@ const TimeframeSelector = ({
   onTimeframeChange = () => {},
 }: TimeframeSelectorProps) => {
   return (
-    <div className="w-[300px] h-[40px] bg-slate-900 p-2 rounded-lg flex gap-2">
-      <Toggle
-        pressed={selectedTimeframe === "24h"}
-        onPressedChange={() => onTimeframeChange("24h")}
-        aria-label="Toggle 24h timeframe"
-        className="flex-1 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+    <div className="flex gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100">
+      <Button
+        variant={selectedTimeframe === "24h" ? "default" : "ghost"}
+        size="sm"
+        onClick={() => onTimeframeChange("24h")}
+        className="text-sm px-3"
       >
         24h
-      </Toggle>
-      <Toggle
-        pressed={selectedTimeframe === "7d"}
-        onPressedChange={() => onTimeframeChange("7d")}
-        aria-label="Toggle 7d timeframe"
-        className="flex-1 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+      </Button>
+      <Button
+        variant={selectedTimeframe === "7d" ? "default" : "ghost"}
+        size="sm"
+        onClick={() => onTimeframeChange("7d")}
+        className="text-sm px-3"
       >
         7d
-      </Toggle>
-      <Toggle
-        pressed={selectedTimeframe === "30d"}
-        onPressedChange={() => onTimeframeChange("30d")}
-        aria-label="Toggle 30d timeframe"
-        className="flex-1 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+      </Button>
+      <Button
+        variant={selectedTimeframe === "30d" ? "default" : "ghost"}
+        size="sm"
+        onClick={() => onTimeframeChange("30d")}
+        className="text-sm px-3"
       >
         30d
-      </Toggle>
+      </Button>
     </div>
   );
 };

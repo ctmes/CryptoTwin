@@ -142,16 +142,7 @@ export const fetchCryptoData = async (
       return await response.json();
     } catch (error) {
       console.error("Error fetching crypto data:", error);
-      return coins.reduce((acc, coin) => {
-        acc[coin] = {
-          [currency]: Math.random() * 50000,
-          [`${currency}_24h_change`]: Math.random() * 20 - 10,
-          [`${currency}_24h_vol`]: Math.random() * 1000000000,
-          [`${currency}_market_cap`]: Math.random() * 10000000000,
-          last_updated_at: Date.now() / 1000,
-        };
-        return acc;
-      }, {} as any);
+      throw error;
     }
   });
 };
@@ -163,11 +154,12 @@ export const fetchCryptoHistory = async (
 ) => {
   try {
     const results = [];
+    const interval = days === "1" ? "minute" : days === "7" ? "hour" : "day";
 
     for (const coinId of coinIds) {
       const data = await requestQueue.add(async () => {
         const response = await fetchWithRetry(
-          `${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=${currency}&days=${days}`,
+          `${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=${currency}&days=${days}&interval=${interval}`,
         );
         return response.json();
       });
@@ -177,19 +169,7 @@ export const fetchCryptoHistory = async (
     return results;
   } catch (error) {
     console.error("Error fetching crypto history:", error);
-    return coinIds.map(() => {
-      const prices: [number, number][] = [];
-      const startTime = Date.now() - parseInt(days) * 24 * 60 * 60 * 1000;
-      const points = parseInt(days) * 24;
-
-      let currentPrice = Math.random() * 50000;
-      for (let i = 0; i < points; i++) {
-        currentPrice = currentPrice * (1 + (Math.random() * 0.1 - 0.05));
-        prices.push([startTime + i * 60 * 60 * 1000, currentPrice]);
-      }
-
-      return { prices };
-    });
+    throw error;
   }
 };
 
