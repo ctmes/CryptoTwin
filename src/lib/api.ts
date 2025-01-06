@@ -1,9 +1,17 @@
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 
-interface CryptoGroup {
+export interface Token {
+  id: string;
+  symbol: string;
   name: string;
-  description: string;
-  coins: string[];
+}
+
+export interface CryptoData {
+  [currency: string]: number;
+  [key: `${string}_24h_change`]: number;
+  [key: `${string}_24h_vol`]: number;
+  [key: `${string}_market_cap`]: number;
+  last_updated_at?: number;
 }
 
 export const SUPPORTED_CURRENCIES = [
@@ -15,40 +23,42 @@ export const SUPPORTED_CURRENCIES = [
   { value: "cad", label: "CAD ($)", symbol: "C$" },
 ];
 
-export const CRYPTO_GROUPS: CryptoGroup[] = [
-  {
-    name: "Layer 1",
-    description: "Major blockchain platforms",
-    coins: ["bitcoin", "ethereum", "solana", "cardano", "avalanche-2"],
-  },
-  {
-    name: "DeFi Blue Chips",
-    description: "Major decentralized finance protocols",
-    coins: [
-      "uniswap",
-      "aave",
-      "maker",
-      "compound-governance-token",
-      "curve-dao-token",
-    ],
-  },
-  {
-    name: "Meme Coins",
-    description: "Popular cryptocurrency memes and their followers",
-    coins: ["dogecoin", "shiba-inu", "pepe", "floki", "bonk"],
-  },
-  {
-    name: "AI Tokens",
-    description: "Artificial Intelligence focused cryptocurrencies",
-    coins: [
-      "fetch-ai",
-      "singularitynet",
-      "ocean-protocol",
-      "numeraire",
-      "cortex",
-    ],
-  },
-];
+// Cache configuration
+const CACHE_DURATION = 60 * 1000; // 1 minute
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+class Cache {
+  private store: { [key: string]: CacheEntry<any> } = {};
+
+  set<T>(key: string, data: T): void {
+    this.store[key] = {
+      data,
+      timestamp: Date.now(),
+    };
+  }
+
+  get<T>(key: string): T | null {
+    const entry = this.store[key];
+    if (!entry) return null;
+
+    const age = Date.now() - entry.timestamp;
+    if (age > CACHE_DURATION) {
+      delete this.store[key];
+      return null;
+    }
+
+    return entry.data;
+  }
+
+  clear(): void {
+    this.store = {};
+  }
+}
+
+const cache = new Cache();
 
 // Rate limiting configuration
 const MIN_REQUEST_INTERVAL = 1100; // 1.1 seconds between requests
@@ -130,19 +140,117 @@ async function fetchWithRetry(
   }
 }
 
+export const searchTokens = async (query: string): Promise<Token[]> => {
+  if (!query) return [];
+
+  const cacheKey = `search:${query}`;
+  const cachedResult = cache.get<Token[]>(cacheKey);
+  if (cachedResult) return cachedResult;
+
+  return requestQueue.add(async () => {
+    try {
+      const response = await fetchWithRetry(
+        `${COINGECKO_API}/search?query=${query}`,
+      );
+      const data = await response.json();
+      const results = data.coins.slice(0, 10).map((coin: any) => ({
+        id: coin.id,
+        symbol: coin.symbol.toUpperCase(),
+        name: coin.name,
+      }));
+      cache.set(cacheKey, results);
+      return results;
+    } catch (error) {
+      console.error("Error searching tokens:", error);
+      return [];
+    }
+  });
+};
+
+export const fetchSingleTokenData = async (
+  coinId: string,
+  currency: string = "usd",
+): Promise<CryptoData | null> => {
+  const cacheKey = `data:${coinId}:${currency}`;
+  const cachedData = cache.get<CryptoData>(cacheKey);
+  if (cachedData) return cachedData;
+
+  return requestQueue.add(async () => {
+    try {
+      const response = await fetchWithRetry(
+        `${COINGECKO_API}/simple/price?ids=${coinId}&vs_currencies=${currency}&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`,
+      );
+      const data = await response.json();
+      const tokenData = data[coinId];
+      if (tokenData) {
+        cache.set(cacheKey, tokenData);
+        return tokenData;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Error fetching data for ${coinId}:`, error);
+      return null;
+    }
+  });
+};
+
 export const fetchCryptoData = async (
   coins: string[],
   currency: string = "usd",
 ) => {
+  const result: { [key: string]: CryptoData } = {};
+  const uncachedCoins: string[] = [];
+
+  // Check cache first
+  for (const coinId of coins) {
+    const cacheKey = `data:${coinId}:${currency}`;
+    const cachedData = cache.get<CryptoData>(cacheKey);
+    if (cachedData) {
+      result[coinId] = cachedData;
+    } else {
+      uncachedCoins.push(coinId);
+    }
+  }
+
+  // Fetch uncached coins in parallel batches
+  if (uncachedCoins.length > 0) {
+    const batchSize = 5;
+    for (let i = 0; i < uncachedCoins.length; i += batchSize) {
+      const batch = uncachedCoins.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (coinId) => {
+          const data = await fetchSingleTokenData(coinId, currency);
+          if (data) result[coinId] = data;
+        }),
+      );
+    }
+  }
+
+  return result;
+};
+
+export const fetchSingleTokenHistory = async (
+  coinId: string,
+  days: string = "1",
+  currency: string = "usd",
+) => {
+  const cacheKey = `history:${coinId}:${days}:${currency}`;
+  const cachedData = cache.get(cacheKey);
+  if (cachedData) return cachedData;
+
+  const interval = days === "1" ? "minute" : days === "7" ? "hour" : "day";
+
   return requestQueue.add(async () => {
     try {
       const response = await fetchWithRetry(
-        `${COINGECKO_API}/simple/price?ids=${coins.join(",")}&vs_currencies=${currency}&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`,
+        `${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=${currency}&days=${days}&interval=${interval}`,
       );
-      return await response.json();
+      const data = await response.json();
+      cache.set(cacheKey, data);
+      return data;
     } catch (error) {
-      console.error("Error fetching crypto data:", error);
-      throw error;
+      console.error(`Error fetching history for ${coinId}:`, error);
+      return null;
     }
   });
 };
@@ -154,16 +262,14 @@ export const fetchCryptoHistory = async (
 ) => {
   try {
     const results = [];
-    const interval = days === "1" ? "minute" : days === "7" ? "hour" : "day";
+    const batchSize = 3;
 
-    for (const coinId of coinIds) {
-      const data = await requestQueue.add(async () => {
-        const response = await fetchWithRetry(
-          `${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=${currency}&days=${days}&interval=${interval}`,
-        );
-        return response.json();
-      });
-      results.push(data);
+    for (let i = 0; i < coinIds.length; i += batchSize) {
+      const batch = coinIds.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map((coinId) => fetchSingleTokenHistory(coinId, days, currency)),
+      );
+      results.push(...batchResults);
     }
 
     return results;
@@ -173,14 +279,20 @@ export const fetchCryptoHistory = async (
   }
 };
 
-export const searchCryptoGroups = (query: string): CryptoGroup[] => {
-  if (!query) return CRYPTO_GROUPS;
+// Function to find correlated tokens based on price movements
+export const findCorrelatedTokens = async (
+  mainToken: string,
+  days: string = "30",
+  currency: string = "usd",
+  limit: number = 5,
+): Promise<string[]> => {
+  // For now, return a mock list of correlated tokens
+  // In a real implementation, this would analyze price data to find correlations
+  const mockCorrelations: { [key: string]: string[] } = {
+    pepe: ["shiba-inu", "floki", "dogecoin", "wojak", "bonk"],
+    bitcoin: ["ethereum", "litecoin", "bitcoin-cash", "monero", "dash"],
+    ethereum: ["polygon", "avalanche-2", "solana", "cardano", "polkadot"],
+  };
 
-  const lowerQuery = query.toLowerCase();
-  return CRYPTO_GROUPS.filter(
-    (group) =>
-      group.name.toLowerCase().includes(lowerQuery) ||
-      group.description.toLowerCase().includes(lowerQuery) ||
-      group.coins.some((coin) => coin.toLowerCase().includes(lowerQuery)),
-  );
+  return mockCorrelations[mainToken] || [];
 };
